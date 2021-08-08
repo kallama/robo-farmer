@@ -1,4 +1,4 @@
-# Robo-Farmer 🤖
+# Robo-Farmer 🤖🌾
 
 Enslave robots to manage your farms and harvest your crops.
 
