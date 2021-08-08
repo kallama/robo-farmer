@@ -34,31 +34,31 @@ Enslave robots to manage your farms and harvest your crops.
 
 ### Development
 
-#### `npm run start:dev`
+#### `yarn start:dev`
 
 Starts the application in development using `nodemon` and `ts-node` to do hot reloading.
 
-#### `npm run start`
+#### `yarn start`
 
-Starts the app in production by first building the project with `npm run build`, and then executing the compiled JavaScript at `build/index.js`.
+Starts the app in production by first building the project with `yarn build`, and then executing the compiled JavaScript at `build/index.js`.
 
-#### `npm run build`
+#### `yarn build`
 
 Builds the app at `build`, cleaning the folder first.
 
-#### `npm run test`
+#### `yarn test`
 
 Runs the `jest` tests once.
 
-#### `npm run test:dev`
+#### `yarn test:dev`
 
 Run the `jest` tests in watch mode, waiting for file changes.
 
-#### `npm run prettier-format`
+#### `yarn prettier-format`
 
 Format your code.
 
-#### `npm run prettier-watch`
+#### `yarn prettier-watch`
 
 Format your code in watch mode, waiting for file changes.
 
