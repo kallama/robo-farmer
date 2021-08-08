@@ -1,0 +1,1 @@
+Handle pools not in the master chef contact
