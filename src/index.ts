@@ -108,7 +108,7 @@ const getPool = async (masterChef: MasterChef, poolId: number): Promise<Pool> =>
   pool.poolId = poolId;
   pool.pair = false;
   // check if lp token
-  if (pool.contract.hasOwnProperty('factory')) {
+  if (Object.prototype.hasOwnProperty.call(pool.contract, 'factory')) {
     pool.pair = true;
     pool.factory = await pool.contract.factory();
     pool.minimumLiquidity = await pool.contract.MINIMUM_LIQUIDITY();
@@ -156,7 +156,7 @@ const buildFarm = async (
   return farm;
 };
 
-const harvest = async () => {};
+/*const harvest = async () => {};
 
 const strategyHold = async () => {};
 
@@ -170,7 +170,7 @@ const swapTokens = async () => {};
 
 const createLiquidity = async () => {};
 
-const addLiquidity = async () => {};
+const addLiquidity = async () => {};*/
 
 const main = async (): Promise<undefined> => {
   const strategyArray = processStrategy(strategy);
