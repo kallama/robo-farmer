@@ -18,6 +18,7 @@ Enslave robots to manage your farms and harvest your crops.
 - Minimal risk of a robot uprising
 
 ### Requirements
+- Polygonscan API Key ([https://polygonscan.com/apis](https://polygonscan.com/apis))
 - Node
 - Yarn or NPM
 - Optional: PM2
