@@ -9,7 +9,7 @@ import { getPolygonScanABI } from './libs/polygonscan';
 import { Token, Pool, Router, MasterChef, Farm } from './libs/interfaces';
 
 const privateKey: any = String(process.env.PRIVATE_KEY);
-const minConfirms = Number(process.env.MIN_CONFIRMs);
+const minConfirms = Number(process.env.MIN_CONFIRMS);
 const hodlTokenAddress = String(process.env.HODL_TOKEN_ADDRESS);
 const tokenAddress = String(process.env.TOKEN_ADDRESS);
 const chefAddress = String(process.env.CHEF_ADDRESS);
