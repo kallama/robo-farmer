@@ -3,12 +3,12 @@ import axios from 'axios';
 import cliProgress from 'cli-progress';
 //import fs from 'fs'
 import * as config from './config.json';
-import { ethers } from 'ethers';
+import { ethers, BigNumber } from 'ethers';
 import { colors } from './libs/colors';
+import { getPolygonScanABI } from './libs/polygonscan';
+import { Token, Pool, Router, MasterChef, Farm } from './libs/interfaces';
 
 const privateKey: any = String(process.env.PRIVATE_KEY);
-const polygonScanUrl = config.chains.polygon.polygonScanUrl;
-const polygonScanApiKey = String(process.env.POLYGONSCAN_API_KEY);
 const minConfirms = Number(process.env.MIN_CONFIRMs);
 const hodlTokenAddress = String(process.env.HODL_TOKEN_ADDRESS);
 const tokenAddress = String(process.env.TOKEN_ADDRESS);
@@ -23,8 +23,7 @@ const provider: ethers.providers.JsonRpcProvider = new ethers.providers.JsonRpcP
 const wallet: ethers.Wallet = new ethers.Wallet(privateKey, provider);
 const walletAddress = wallet.address;
 const cmdLineArgs: string[] = process.argv.slice(2);
-const gasStationUrl = 'https://gasstation-mainnet.matic.network';
-const oneInchUrl = 'https://api.1inch.exchange/v3.0/1/';
+const gasStationUrl = config.gasStationUrl;
 
 /*const processArguments = async (arg: string[]): Promise<string> => {
   return 'world';
@@ -66,25 +65,6 @@ const startSleeping = async (delay: number): Promise<boolean> => {
   return true;
 };
 
-const getPolygonScanABI = async (address: string): Promise<string> => {
-  const url = polygonScanUrl + address + '&apikey=' + polygonScanApiKey;
-  try {
-    const response = await axios.get(url);
-    if (response.status !== 200) {
-      console.log(`[!] Error: Response Code is ${response.status}`);
-      throw new Error(response.data);
-    } else if (Number(response.data.status) !== 1) {
-      console.log(`[!] Error: ${response.data.result}`);
-      throw new Error(response.data.result);
-    }
-    console.log(`[!] ABI found for ${address}`);
-    const abi: string = response.data.result;
-    return abi;
-  } catch (error) {
-    throw new Error(error);
-  }
-};
-
 const getGasPrice = async (speed: string): Promise<ethers.BigNumber> => {
   // safeLow, standard, fast, fastest
   const response = await axios.get(gasStationUrl);
@@ -93,16 +73,7 @@ const getGasPrice = async (speed: string): Promise<ethers.BigNumber> => {
   return gasPrice;
 };
 
-const getToken = async (
-  address: string,
-): Promise<{
-  address: string;
-  symbol: string;
-  name: string;
-  decimals: number;
-  abi: string;
-  contract: ethers.Contract;
-}> => {
+const getToken = async (address: string): Promise<Token> => {
   console.log(`Getting polygonscan info for ${address}`);
   let abi = await getPolygonScanABI(address);
   let contract = new ethers.Contract(address, abi, provider);
@@ -117,21 +88,72 @@ const getToken = async (
   const symbol: string = await contract.symbol();
   const name: string = await contract.name();
   const decimals: number = await contract.decimals();
-  return { address, symbol, name, decimals, abi, contract };
+  return { contract, address, symbol, name, decimals, abi };
 };
 
-const getMasterChef = async (
-  address: string,
-  pendingFunctionName: string,
-): Promise<{ address: string; pendingFunctionName: string; abi: string; contract: ethers.Contract }> => {
+const getMasterChef = async (address: string, pendingFunctionName: string): Promise<MasterChef> => {
   console.log(`Getting polygonscan info for ${address}`);
   const abi = await getPolygonScanABI(address);
   const contract = new ethers.Contract(address, abi, provider);
-  return { address, pendingFunctionName, abi, contract };
+  const poolsBigNumber: ethers.BigNumber = await contract.poolLength();
+  const pools = poolsBigNumber.toNumber();
+  return { address, pendingFunctionName, contract, pools, abi };
 };
 
-const getPoolInfo = async (contract: ethers.Contract, poolId: number): Promise<object> => {
-  return {};
+const getPool = async (masterChef: MasterChef, poolId: number): Promise<Pool> => {
+  const poolInfo: any = await masterChef.contract.poolInfo(poolId);
+  // TODO can poolInfo have a function other than lpToken that returns the address we need?
+  const address = poolInfo['lpToken'];
+  const pool: Pool = await getToken(address);
+  pool.poolId = poolId;
+  pool.pair = false;
+  // check if lp token
+  if (pool.contract.hasOwnProperty('factory')) {
+    pool.pair = true;
+    pool.factory = await pool.contract.factory();
+    pool.minimumLiquidity = await pool.contract.MINIMUM_LIQUIDITY();
+    pool.token0 = await pool.contract.token0();
+    pool.token1 = await pool.contract.token1();
+    // TODO make this better
+    let routerAddress = '';
+    const abi = [
+      'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)',
+      'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+      'function addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) external returns (uint amountA, uint amountB, uint liquidity)',
+    ];
+    if (pool.factory?.toUpperCase() === config.chains.polygon.swaps.quickswap.factory.toUpperCase()) {
+      routerAddress = config.chains.polygon.swaps.quickswap.router;
+    }
+    if (pool.factory?.toUpperCase() === config.chains.polygon.swaps.sushiswap.factory.toUpperCase()) {
+      routerAddress = config.chains.polygon.swaps.sushiswap.router;
+    }
+    const router: Router = {
+      address: routerAddress,
+      contract: new ethers.Contract(routerAddress, abi, provider),
+    };
+    pool.router = router;
+  }
+  return pool;
+};
+
+const buildFarm = async (
+  token: Token,
+  masterChef: MasterChef,
+  strategyArray: Array<{ poolId: number; strategy: string }>,
+): Promise<Farm> => {
+  const pools = [];
+  for (let i = 0; i < strategyArray.length; i++) {
+    const pool = await getPool(masterChef, strategyArray[i].poolId);
+    pool.strategy = strategyArray[i].strategy;
+    pools.push(pool);
+  }
+  const farm: Farm = {
+    token,
+    masterChef,
+    pools,
+  };
+
+  return farm;
 };
 
 const harvest = async () => {};
@@ -153,19 +175,24 @@ const addLiquidity = async () => {};
 const main = async (): Promise<undefined> => {
   const strategyArray = processStrategy(strategy);
   console.log(strategyArray);
-  //await startSleeping(sleep)
-  /*const token = await getToken('0xaa9654becca45b5bdfa5ac646c939c62b527d394').catch(error => {
+
+  const token = await getToken(tokenAddress).catch(error => {
     console.log(error);
     process.exit();
   });
-  const masterChef = await getMasterChef('0x1948abc5400aa1d72223882958da3bec643fb4e5', pendingFunctionName).catch(
-    error => {
-      console.log(error);
-      process.exit();
-    },
-  );
-  */
+  const masterChef = await getMasterChef(chefAddress, pendingFunctionName).catch(error => {
+    console.log(error);
+    process.exit();
+  });
+  const farm = await buildFarm(token, masterChef, strategyArray);
+  console.log(farm);
 
+  /*
+  while (true) {
+    await harvest()
+    await startSleeping(sleep)
+  }
+  */
   console.log('Hello world!');
   return;
 };

@@ -1,1 +1,2 @@
-Handle pools not in the master chef contact
+- Handle pools not in the master chef contact
+- Option to use one strategy on every pool in chef contract that wallet address has a balanceOf
