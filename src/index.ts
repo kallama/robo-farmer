@@ -3,7 +3,7 @@ import axios from 'axios';
 import cliProgress from 'cli-progress';
 //import fs from 'fs'
 import * as config from './config.json';
-import { ethers, BigNumber } from 'ethers';
+import { ethers } from 'ethers';
 import { colors } from './libs/colors';
 import { getPolygonScanABI } from './libs/polygonscan';
 import { Token, Pool, Router, MasterChef, Farm } from './libs/interfaces';
@@ -39,7 +39,7 @@ const processStrategy = (strategy: string): Array<{ poolId: number; strategy: st
       process.exit();
     }
     strategyArray.push({
-      poolId: i,
+      poolId: Number(strategyStringArray[i]),
       strategy: strategyStringArray[i + 1],
     });
   }
@@ -101,9 +101,9 @@ const getMasterChef = async (address: string, pendingFunctionName: string): Prom
 };
 
 const getPool = async (masterChef: MasterChef, poolId: number): Promise<Pool> => {
-  const poolInfo: any = await masterChef.contract.poolInfo(poolId);
+  const poolInfo = (await masterChef.contract.poolInfo(poolId)) as ethers.utils.Result;
   // TODO can poolInfo have a function other than lpToken that returns the address we need?
-  const address = poolInfo['lpToken'];
+  const address = poolInfo.lpToken;
   const pool: Pool = await getToken(address);
   pool.poolId = poolId;
   pool.pair = false;
@@ -156,40 +156,44 @@ const buildFarm = async (
   return farm;
 };
 
-/*const harvest = async () => {};
-
-const strategyHold = async () => {};
-
-const strategySell = async () => {};
-
-const strategyComp = async () => {};
-
-const strategyHypComp = async () => {};
-
-const swapTokens = async () => {};
-
-const createLiquidity = async () => {};
-
-const addLiquidity = async () => {};*/
+const harvest = async (farm: Farm): Promise<boolean> => {
+  for (let i = 0; i < farm.pools.length; i++) {
+    const poolId = farm.pools[i].poolId;
+    // check if you are staked in the pool
+    const staked = (await farm.masterChef.contract.userInfo(poolId, walletAddress)) as ethers.utils.Result;
+    if (staked.amount.isZero()) {
+      console.log(`[!] Skipping pool ${poolId}, you have 0 staked`);
+      continue;
+    }
+    // TODO additional guardrails, like check if pendingReward > 1 USDC
+    const pendingReward = (await farm.masterChef.contract[farm.masterChef.pendingFunctionName](
+      poolId,
+      walletAddress,
+    )) as ethers.BigNumber;
+    console.log(`Pool ${poolId} pending reward: ${ethers.utils.formatEther(pendingReward)}`);
+  }
+  return true;
+};
 
 const main = async (): Promise<undefined> => {
   const strategyArray = processStrategy(strategy);
   console.log(strategyArray);
-
-  const token = await getToken(tokenAddress).catch(error => {
+  try {
+    const token = await getToken(tokenAddress);
+    console.log(`Farm Token: ${token.name} (${token.symbol})`);
+    const hodlToken = await getToken(hodlTokenAddress);
+    console.log(`Hodl Token: ${hodlToken.name} (${hodlToken.symbol})`);
+    const masterChef = await getMasterChef(chefAddress, pendingFunctionName);
+    const farm = await buildFarm(token, masterChef, strategyArray);
+    await harvest(farm);
+  } catch (error) {
     console.log(error);
     process.exit();
-  });
-  const masterChef = await getMasterChef(chefAddress, pendingFunctionName).catch(error => {
-    console.log(error);
-    process.exit();
-  });
-  const farm = await buildFarm(token, masterChef, strategyArray);
-  console.log(farm);
+  }
 
   /*
   while (true) {
-    await harvest()
+    await harvest(farm)
     await startSleeping(sleep)
   }
   */
