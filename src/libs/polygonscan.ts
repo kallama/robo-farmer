@@ -15,7 +15,7 @@ export const getPolygonScanABI = async (address: string): Promise<string> => {
       console.log(`[!] Error: ${response.data.result}`);
       throw new Error(response.data.result);
     }
-    console.log(`[!] ABI found for ${address}`);
+    console.log(`ABI found for ${address}`);
     const abi: string = response.data.result;
     return abi;
   } catch (error) {

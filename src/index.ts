@@ -3,27 +3,27 @@ import axios from 'axios';
 import cliProgress from 'cli-progress';
 //import fs from 'fs'
 import * as config from './config.json';
-import { ethers } from 'ethers';
+import { BigNumber, ethers } from 'ethers';
 import { colors } from './libs/colors';
 import { getPolygonScanABI } from './libs/polygonscan';
 import { Token, Pool, Router, MasterChef, Farm } from './libs/interfaces';
 
 const privateKey: any = String(process.env.PRIVATE_KEY);
-const minConfirms = Number(process.env.MIN_CONFIRMS);
+const MIN_CONFIRMS = Number(process.env.MIN_CONFIRMS);
 const hodlTokenAddress = String(process.env.HODL_TOKEN_ADDRESS);
 const tokenAddress = String(process.env.TOKEN_ADDRESS);
 const chefAddress = String(process.env.CHEF_ADDRESS);
 const pendingFunctionName = String(process.env.PENDING_FUNCTION_NAME);
-const strategy = String(process.env.STRATEGY);
+const STRATEGY = String(process.env.STRATEGY);
 const validStrategies = config.strategies;
-const slippage = Number(process.env.SLIPPAGE);
-const sleep = Number(process.env.SLEEP);
-const rpcUrl = process.env.CUSTOM_RPC !== '' ? String(process.env.CUSTOM_RPC) : config.chains.polygon.rpcUrl;
-const provider: ethers.providers.JsonRpcProvider = new ethers.providers.JsonRpcProvider(rpcUrl);
-const wallet: ethers.Wallet = new ethers.Wallet(privateKey, provider);
-const walletAddress = wallet.address;
-const cmdLineArgs: string[] = process.argv.slice(2);
-const gasStationUrl = config.gasStationUrl;
+const SLIPPAGE = Number(process.env.SLIPPAGE);
+const SLEEP = Number(process.env.SLEEP);
+const RPC_URL = process.env.CUSTOM_RPC !== '' ? String(process.env.CUSTOM_RPC) : config.chains.polygon.rpcUrl;
+const PROVIDER: ethers.providers.JsonRpcProvider = new ethers.providers.JsonRpcProvider(RPC_URL);
+const WALLET: ethers.Wallet = new ethers.Wallet(privateKey, PROVIDER);
+const WALLET_ADDRESS = WALLET.address;
+const CMD_LINE_ARGS: string[] = process.argv.slice(2);
+const GAS_STATION_URL = config.gasStationUrl;
 
 /*const processArguments = async (arg: string[]): Promise<string> => {
   return 'world';
@@ -67,7 +67,7 @@ const startSleeping = async (delay: number): Promise<boolean> => {
 
 const getGasPrice = async (speed: string): Promise<ethers.BigNumber> => {
   // safeLow, standard, fast, fastest
-  const response = await axios.get(gasStationUrl);
+  const response = await axios.get(GAS_STATION_URL);
   const amount = String(response.data[speed]); // up our gas price to do a faster transaction
   const gasPrice = ethers.utils.parseUnits(amount, 'gwei'); // bignumber 9 decimals
   return gasPrice;
@@ -76,13 +76,13 @@ const getGasPrice = async (speed: string): Promise<ethers.BigNumber> => {
 const getToken = async (address: string): Promise<Token> => {
   console.log(`Getting polygonscan info for ${address}`);
   let abi = await getPolygonScanABI(address);
-  let contract = new ethers.Contract(address, abi, provider);
+  let contract = new ethers.Contract(address, abi, PROVIDER);
   // check for proxy implementation, get ABI if it exists
   if (typeof contract.implementation === 'function') {
     const implementationAddress: string = await contract.implementation();
-    console.log(`[!] Proxy address found, getting ABI`);
+    console.log(`Proxy address found, getting ABI`);
     abi = await getPolygonScanABI(implementationAddress);
-    contract = new ethers.Contract(address, abi, provider);
+    contract = new ethers.Contract(address, abi, PROVIDER);
   }
   // get contract information
   const symbol: string = await contract.symbol();
@@ -94,7 +94,7 @@ const getToken = async (address: string): Promise<Token> => {
 const getMasterChef = async (address: string, pendingFunctionName: string): Promise<MasterChef> => {
   console.log(`Getting polygonscan info for ${address}`);
   const abi = await getPolygonScanABI(address);
-  const contract = new ethers.Contract(address, abi, provider);
+  const contract = new ethers.Contract(address, abi, WALLET);
   const poolsBigNumber: ethers.BigNumber = await contract.poolLength();
   const pools = poolsBigNumber.toNumber();
   return { address, pendingFunctionName, contract, pools, abi };
@@ -129,7 +129,7 @@ const getPool = async (masterChef: MasterChef, poolId: number): Promise<Pool> =>
     }
     const router: Router = {
       address: routerAddress,
-      contract: new ethers.Contract(routerAddress, abi, provider),
+      contract: new ethers.Contract(routerAddress, abi, PROVIDER),
     };
     pool.router = router;
   }
@@ -156,27 +156,52 @@ const buildFarm = async (
   return farm;
 };
 
-const harvest = async (farm: Farm): Promise<boolean> => {
-  for (let i = 0; i < farm.pools.length; i++) {
-    const poolId = farm.pools[i].poolId;
+const harvest = async (farm: Farm): Promise<void> => {
+  for (const pool of farm.pools) {
+    console.log(`Checking pool ${pool.poolId}`);
     // check if you are staked in the pool
-    const staked = (await farm.masterChef.contract.userInfo(poolId, walletAddress)) as ethers.utils.Result;
+    const staked: ethers.utils.Result = await farm.masterChef.contract.userInfo(pool.poolId, WALLET_ADDRESS);
     if (staked.amount.isZero()) {
-      console.log(`[!] Skipping pool ${poolId}, you have 0 staked`);
+      console.log(`Skipping pool ${pool.poolId}, you have 0 staked`);
       continue;
     }
     // TODO additional guardrails, like check if pendingReward > 1 USDC
     const pendingReward = (await farm.masterChef.contract[farm.masterChef.pendingFunctionName](
-      poolId,
-      walletAddress,
+      pool.poolId,
+      WALLET_ADDRESS,
     )) as ethers.BigNumber;
-    console.log(`Pool ${poolId} pending reward: ${ethers.utils.formatEther(pendingReward)}`);
+    console.log(
+      `Pool ${pool.poolId} pending reward: ${ethers.utils.formatUnits(pendingReward, farm.token.decimals)} ${
+        farm.token.symbol
+      }`,
+    );
+    if (pool.poolId === 10) {
+      const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(pool.poolId, 0);
+      const receipt: ethers.providers.TransactionReceipt = await tx.wait(MIN_CONFIRMS);
+      const transferInterface = new ethers.utils.Interface([
+        'event Transfer(address indexed from, address indexed to, uint256 value)',
+      ]);
+      // get log from token address, parse and get how much we actually recieved
+      for (const log of receipt.logs) {
+        if (log.address.toUpperCase() === farm.token.address.toUpperCase()) {
+          const parsed = transferInterface.parseLog(log);
+          if (parsed.args['to'].toUpperCase() === WALLET_ADDRESS.toUpperCase()) {
+            const recievedReward: BigNumber = parsed.args['value'];
+            console.log(`You receieved ${ethers.utils.formatUnits(recievedReward, 18)} ${farm.token.symbol}`);
+          }
+        }
+      }
+      //
+      if (pool.strategy === 'HOLD') {
+        console.log(`Using strategy ${pool.strategy}`);
+        continue;
+      }
+    }
   }
-  return true;
 };
 
-const main = async (): Promise<undefined> => {
-  const strategyArray = processStrategy(strategy);
+const main = async (): Promise<void> => {
+  const strategyArray = processStrategy(STRATEGY);
   console.log(strategyArray);
   try {
     const token = await getToken(tokenAddress);
@@ -194,10 +219,9 @@ const main = async (): Promise<undefined> => {
   /*
   while (true) {
     await harvest(farm)
-    await startSleeping(sleep)
+    await startSleeping(SLEEP)
   }
   */
   console.log('Hello world!');
-  return;
 };
 main();
