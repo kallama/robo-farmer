@@ -35,6 +35,7 @@ export interface MasterChef {
 
 export interface Farm {
   token: Token;
+  hodlToken: Token;
   masterChef: MasterChef;
   pools: Array<Pool>;
 }

@@ -3,10 +3,11 @@ import axios from 'axios';
 import cliProgress from 'cli-progress';
 //import fs from 'fs'
 import * as config from './config.json';
-import { BigNumber, ethers } from 'ethers';
+import { ethers, BigNumber } from 'ethers';
 import { colors } from './libs/colors';
 import { getPolygonScanABI } from './libs/polygonscan';
 import { Token, Pool, Router, MasterChef, Farm } from './libs/interfaces';
+import { doStrategy } from './libs/strategy';
 
 const privateKey: any = String(process.env.PRIVATE_KEY);
 const MIN_CONFIRMS = Number(process.env.MIN_CONFIRMS);
@@ -23,7 +24,6 @@ const PROVIDER: ethers.providers.JsonRpcProvider = new ethers.providers.JsonRpcP
 const WALLET: ethers.Wallet = new ethers.Wallet(privateKey, PROVIDER);
 const WALLET_ADDRESS = WALLET.address;
 const CMD_LINE_ARGS: string[] = process.argv.slice(2);
-const GAS_STATION_URL = config.gasStationUrl;
 
 /*const processArguments = async (arg: string[]): Promise<string> => {
   return 'world';
@@ -65,14 +65,6 @@ const startSleeping = async (delay: number): Promise<boolean> => {
   return true;
 };
 
-const getGasPrice = async (speed: string): Promise<ethers.BigNumber> => {
-  // safeLow, standard, fast, fastest
-  const response = await axios.get(GAS_STATION_URL);
-  const amount = String(response.data[speed]); // up our gas price to do a faster transaction
-  const gasPrice = ethers.utils.parseUnits(amount, 'gwei'); // bignumber 9 decimals
-  return gasPrice;
-};
-
 const getToken = async (address: string): Promise<Token> => {
   console.log(`Getting polygonscan info for ${address}`);
   let abi = await getPolygonScanABI(address);
@@ -95,7 +87,7 @@ const getMasterChef = async (address: string, pendingFunctionName: string): Prom
   console.log(`Getting polygonscan info for ${address}`);
   const abi = await getPolygonScanABI(address);
   const contract = new ethers.Contract(address, abi, WALLET);
-  const poolsBigNumber: ethers.BigNumber = await contract.poolLength();
+  const poolsBigNumber: BigNumber = await contract.poolLength();
   const pools = poolsBigNumber.toNumber();
   return { address, pendingFunctionName, contract, pools, abi };
 };
@@ -138,6 +130,7 @@ const getPool = async (masterChef: MasterChef, poolId: number): Promise<Pool> =>
 
 const buildFarm = async (
   token: Token,
+  hodlToken: Token,
   masterChef: MasterChef,
   strategyArray: Array<{ poolId: number; strategy: string }>,
 ): Promise<Farm> => {
@@ -149,6 +142,7 @@ const buildFarm = async (
   }
   const farm: Farm = {
     token,
+    hodlToken,
     masterChef,
     pools,
   };
@@ -169,33 +163,38 @@ const harvest = async (farm: Farm): Promise<void> => {
     const pendingReward = (await farm.masterChef.contract[farm.masterChef.pendingFunctionName](
       pool.poolId,
       WALLET_ADDRESS,
-    )) as ethers.BigNumber;
+    )) as BigNumber;
     console.log(
       `Pool ${pool.poolId} pending reward: ${ethers.utils.formatUnits(pendingReward, farm.token.decimals)} ${
         farm.token.symbol
       }`,
     );
-    if (pool.poolId === 10) {
-      const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(pool.poolId, 0);
-      const receipt: ethers.providers.TransactionReceipt = await tx.wait(MIN_CONFIRMS);
-      const transferInterface = new ethers.utils.Interface([
-        'event Transfer(address indexed from, address indexed to, uint256 value)',
-      ]);
-      // get log from token address, parse and get how much we actually recieved
-      for (const log of receipt.logs) {
-        if (log.address.toUpperCase() === farm.token.address.toUpperCase()) {
+    const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(pool.poolId, 0);
+    const receipt: ethers.providers.TransactionReceipt = await tx.wait(MIN_CONFIRMS);
+    const transferInterface = new ethers.utils.Interface([
+      'event Transfer(address indexed from, address indexed to, uint256 value)',
+    ]);
+    const hash = transferInterface.getEventTopic('Transfer');
+    // get log from token address, parse and get how much we actually received
+    let receivedReward = BigNumber.from(0);
+    for (const log of receipt.logs) {
+      for (const topic of log.topics) {
+        if (hash === topic) {
           const parsed = transferInterface.parseLog(log);
+          // is this check really needed?
           if (parsed.args['to'].toUpperCase() === WALLET_ADDRESS.toUpperCase()) {
-            const recievedReward: BigNumber = parsed.args['value'];
-            console.log(`You receieved ${ethers.utils.formatUnits(recievedReward, 18)} ${farm.token.symbol}`);
+            receivedReward = parsed.args['value'];
+            console.log(
+              `Receieved ${ethers.utils.formatUnits(receivedReward, farm.token.decimals)} ${farm.token.symbol}`,
+            );
           }
         }
       }
-      //
-      if (pool.strategy === 'HOLD') {
-        console.log(`Using strategy ${pool.strategy}`);
-        continue;
-      }
+    }
+    if (!receivedReward.isZero()) {
+      await doStrategy(farm, pool.strategy, receivedReward, WALLET);
+    } else {
+      console.log(`[!] Recieved 0 ${farm.token.symbol} from pool ${pool.poolId}`);
     }
   }
 };
@@ -209,7 +208,7 @@ const main = async (): Promise<void> => {
     const hodlToken = await getToken(hodlTokenAddress);
     console.log(`Hodl Token: ${hodlToken.name} (${hodlToken.symbol})`);
     const masterChef = await getMasterChef(chefAddress, pendingFunctionName);
-    const farm = await buildFarm(token, masterChef, strategyArray);
+    const farm = await buildFarm(token, hodlToken, masterChef, strategyArray);
     await harvest(farm);
   } catch (error) {
     console.log(error);

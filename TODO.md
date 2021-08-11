@@ -1,2 +1,4 @@
+- More guard rails
+  - Option to set max gwei for transactions. Wait to execute transaction until gasPrice is <= MAX_GWEI
 - Handle pools not in the master chef contact
 - Option to use one strategy on every pool in chef contract that wallet address has a balanceOf
