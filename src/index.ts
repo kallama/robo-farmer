@@ -9,24 +9,25 @@ import { Token, LPToken, Pool, Router, MasterChef, Farm } from './libs/interface
 import { doStrategy } from './libs/strategy';
 import { quote } from './libs/1inch';
 
-const privateKey = String(process.env.PRIVATE_KEY);
-const MIN_CONFIRMS = Number(process.env.MIN_CONFIRMS);
-const hodlTokenAddress = String(process.env.HODL_TOKEN_ADDRESS);
-const tokenAddress = String(process.env.TOKEN_ADDRESS);
-const chefAddress = String(process.env.CHEF_ADDRESS);
-const pendingFunctionName = String(process.env.PENDING_FUNCTION_NAME);
+const PRIVATE_KEY = String(process.env.PRIVATE_KEY);
+const CONFIRMS_MIN = Number(process.env.CONFIRMS_MIN);
+const HODL_TOKEN_ADDRESS = String(process.env.HODL_TOKEN_ADDRESS);
+const HODL_MIN = String(process.env.HODL_MIN);
+const TOKEN_ADDRESS = String(process.env.TOKEN_ADDRESS);
+const CHEF_ADDRESS = String(process.env.CHEF_ADDRESS);
+const PENDING_FUNCTION_NAME = String(process.env.PENDING_FUNCTION_NAME);
 const STRATEGY = String(process.env.STRATEGY);
-const validStrategies = config.strategies;
+const STRATEGIES = config.strategies;
 const SLEEP = Number(process.env.SLEEP);
 const RPC_URL =
   process.env.CUSTOM_RPC !== '' ? String(process.env.CUSTOM_RPC) : config.chains.polygon.rpcUrl;
 
-if (privateKey.length !== 64) {
+if (PRIVATE_KEY.length !== 64) {
   console.log('[!] Error: Invalid Private Key');
   process.exit();
 }
 const PROVIDER = new ethers.providers.JsonRpcProvider(RPC_URL);
-const WALLET = new ethers.Wallet(privateKey, PROVIDER);
+const WALLET = new ethers.Wallet(PRIVATE_KEY, PROVIDER);
 const WALLET_ADDRESS = WALLET.address;
 //const CMD_LINE_ARGS: string[] = process.argv.slice(2);
 
@@ -38,7 +39,7 @@ const processStrategy = (strategy: string): Array<{ poolId: number; strategy: st
   const strategyStringArray = strategy.split(',');
   const strategyArray: Array<{ poolId: number; strategy: string }> = [];
   for (let i = 0; i < strategyStringArray.length; i += 2) {
-    const found = validStrategies.includes(strategyStringArray[i + 1]);
+    const found = STRATEGIES.includes(strategyStringArray[i + 1]);
     if (!found) {
       console.log(`[!] Error: ${strategyStringArray[i + 1]} is not valid`);
       process.exit();
@@ -193,8 +194,7 @@ const buildFarm = async (
 };
 
 const harvest = async (farm: Farm): Promise<void> => {
-  const usdcAddress = config.chains.polygon.stables.usdc;
-  const usdcDollar = ethers.utils.parseUnits('1', 6);
+  const hodlMin = ethers.utils.parseUnits(HODL_MIN, farm.hodlToken.decimals);
   for (const pool of farm.pools) {
     console.log(`Checking pool ${pool.id}`);
     // check if you are staked in the pool
@@ -215,19 +215,26 @@ const harvest = async (farm: Farm): Promise<void> => {
         farm.token.decimals,
       )} ${farm.token.symbol}`,
     );
-    // TODO additional guardrails, like check if pendingReward > 1 USDC
-    // TODO make this better
-    const quoteData = await quote(farm.token.address, usdcAddress, pendingReward.toString());
-    const quoteUSDCAmount = BigNumber.from(quoteData.toTokenAmount);
-    if (quoteUSDCAmount.lt(usdcDollar)) {
-      console.log(`Pending reward is less than 1 USDC, skipping pool ${pool.id}`);
-      continue;
+    // TODO additional guard rails
+    if (!hodlMin.isZero()) {
+      const quoteData = await quote(
+        farm.token.address,
+        farm.hodlToken.address,
+        pendingReward.toString(),
+      );
+      const quoteAmount = BigNumber.from(quoteData.toTokenAmount);
+      if (quoteAmount.lt(hodlMin)) {
+        console.log(
+          `Pending reward is less than ${HODL_MIN} (${farm.hodlToken.symbol}), skipping pool ${pool.id}`,
+        );
+        continue;
+      }
     }
     const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(
       pool.id,
       0,
     );
-    const receipt: ethers.providers.TransactionReceipt = await tx.wait(MIN_CONFIRMS);
+    const receipt: ethers.providers.TransactionReceipt = await tx.wait(CONFIRMS_MIN);
     // Parse and get how much we actually received
     const transferInterface = new ethers.utils.Interface([
       'event Transfer(address indexed from, address indexed to, uint256 value)',
@@ -264,11 +271,11 @@ const main = async (): Promise<void> => {
   const strategyArray = processStrategy(STRATEGY);
   console.log(strategyArray);
   try {
-    const token = await getToken(tokenAddress);
+    const token = await getToken(TOKEN_ADDRESS);
     console.log(`Farm Token: ${token.name} (${token.symbol})`);
-    const hodlToken = await getToken(hodlTokenAddress);
+    const hodlToken = await getToken(HODL_TOKEN_ADDRESS);
     console.log(`Hodl Token: ${hodlToken.name} (${hodlToken.symbol})`);
-    const masterChef = await getMasterChef(chefAddress, pendingFunctionName);
+    const masterChef = await getMasterChef(CHEF_ADDRESS, PENDING_FUNCTION_NAME);
     const farm = await buildFarm(token, hodlToken, masterChef, strategyArray);
     while (farm) {
       await harvest(farm);

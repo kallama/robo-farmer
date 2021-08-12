@@ -4,7 +4,7 @@ import * as config from '../config.json';
 import { swap } from './1inch';
 import { Farm, Pool, Token } from './interfaces';
 
-const MIN_CONFIRMS = Number(process.env.MIN_CONFIRMS);
+const CONFIRMS_MIN = Number(process.env.CONFIRMS_MIN);
 const GAS_STATION_URL = config.gasStationUrl;
 
 const getGasPrice = async (speed: string): Promise<BigNumber> => {
@@ -40,7 +40,7 @@ export const doStrategy = async (
     tx.gasLimit = await WALLET.estimateGas(tx);
     tx.gasLimit = tx.gasLimit.mul(100).div(50);
     const response = await WALLET.sendTransaction(tx);
-    const receipt = await response.wait(MIN_CONFIRMS);
+    const receipt = await response.wait(CONFIRMS_MIN);
     console.log('Swap transaction completed');
     const transferInterface = new ethers.utils.Interface([
       'event Swapped(address sender, address srcToken, address dstToken, address dstReceiver, uint256 spentAmount, uint256 returnAmount)',
@@ -109,7 +109,7 @@ export const doStrategy = async (
       WALLET.address,
       Date.now() + 1000 * 60 * 20, // max execution time 20 minutes
     );
-    let receipt: ethers.providers.TransactionReceipt = await tx.wait(MIN_CONFIRMS);
+    let receipt: ethers.providers.TransactionReceipt = await tx.wait(CONFIRMS_MIN);
     // Parse and get how much we actually received
     const transferInterface = new ethers.utils.Interface([
       'event Transfer(address indexed from, address indexed to, uint256 value)',
@@ -141,7 +141,7 @@ export const doStrategy = async (
       } to pool ${pool.id}`,
     );
     tx = await farm.masterChef.contract.deposit(pool.id, receivedAmount);
-    receipt = await tx.wait(MIN_CONFIRMS);
+    receipt = await tx.wait(CONFIRMS_MIN);
     console.log(
       `Deposited ${ethers.utils.formatUnits(receivedAmount, pool.lpToken.decimals)} ${
         pool.lpToken.symbol
