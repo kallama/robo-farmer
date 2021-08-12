@@ -28,7 +28,11 @@ export const doStrategy = async (
     return;
   };
 
-  const strategySell = async (fromToken: Token, toToken: Token, amount: BigNumber): Promise<BigNumber> => {
+  const strategySell = async (
+    fromToken: Token,
+    toToken: Token,
+    amount: BigNumber,
+  ): Promise<BigNumber> => {
     if (typeof toToken === 'undefined') throw new Error(`[!] Error: toToken can't be undefined`);
     const tx = await swap(fromToken.address, toToken.address, amount.toString(), WALLET.address);
     tx.gasPrice = await getGasPrice('standard');
@@ -49,8 +53,14 @@ export const doStrategy = async (
           const parsed = transferInterface.parseLog(log);
           const soldAmount = parsed.args['spentAmount'];
           receivedAmount = parsed.args['returnAmount'];
-          console.log(`Sold ${ethers.utils.formatUnits(soldAmount, fromToken.decimals)} ${fromToken.symbol}`);
-          console.log(`Bought ${ethers.utils.formatUnits(receivedAmount, toToken.decimals)} ${toToken.symbol}`);
+          console.log(
+            `Sold ${ethers.utils.formatUnits(soldAmount, fromToken.decimals)} ${fromToken.symbol}`,
+          );
+          console.log(
+            `Bought ${ethers.utils.formatUnits(receivedAmount, toToken.decimals)} ${
+              toToken.symbol
+            }`,
+          );
         }
       }
     }
@@ -68,25 +78,13 @@ export const doStrategy = async (
     if (typeof pool.lpToken.router === 'undefined')
       throw new Error(`[!] Error: pool.lpToken.router can't be undefined`);
     const half = amount.div(2);
-    let half0 = BigNumber.from(0);
-    let half1 = BigNumber.from(0);
-    // check if one of 2 tokens is farm token, don't sell it
-    if (
-      farm.token.address.toUpperCase() !== pool.lpToken.token0.address.toUpperCase() &&
-      farm.token.address.toUpperCase() !== pool.lpToken.token1.address.toUpperCase()
-    ) {
+    let half0 = half;
+    let half1 = half;
+    // check if token0 or token1 are farm token, only sell if not farm token
+    if (farm.token.address !== pool.lpToken.token0.address)
       half0 = await strategySell(farm.token, pool.lpToken.token0, half);
+    if (farm.token.address !== pool.lpToken.token1.address)
       half1 = await strategySell(farm.token, pool.lpToken.token1, half);
-    } else if (farm.token.address !== pool.lpToken.token0.address) {
-      half0 = half;
-      half1 = await strategySell(farm.token, pool.lpToken.token1, half);
-    } else {
-      half0 = await strategySell(farm.token, pool.lpToken.token0, half);
-      half1 = half;
-    }
-    if (half0.isZero() || half1.isZero()) {
-      throw new Error('[!] Error: one of the compound halfs is 0');
-    }
     console.log(`Creating liquidity for pool ${pool.id}`);
     const half0Min = half0.mul(90).div(100); // 10% less
     const half1Min = half1.mul(90).div(100); // 10% less
@@ -126,7 +124,9 @@ export const doStrategy = async (
           if (parsed.args['to'].toUpperCase() === WALLET.address.toUpperCase()) {
             receivedAmount = parsed.args['value'];
             console.log(
-              `Receieved ${ethers.utils.formatUnits(receivedAmount, pool.lpToken.decimals)} ${pool.lpToken.symbol}`,
+              `Receieved ${ethers.utils.formatUnits(receivedAmount, pool.lpToken.decimals)} ${
+                pool.lpToken.symbol
+              }`,
             );
           }
         }
@@ -136,16 +136,16 @@ export const doStrategy = async (
       throw new Error('[!] Error: Receieved 0 liqudity');
     }
     console.log(
-      `Depositing ${ethers.utils.formatUnits(receivedAmount, pool.lpToken.decimals)} ${pool.lpToken.symbol} to pool ${
-        pool.id
-      }`,
+      `Depositing ${ethers.utils.formatUnits(receivedAmount, pool.lpToken.decimals)} ${
+        pool.lpToken.symbol
+      } to pool ${pool.id}`,
     );
     tx = await farm.masterChef.contract.deposit(pool.id, receivedAmount);
     receipt = await tx.wait(MIN_CONFIRMS);
     console.log(
-      `Deposited ${ethers.utils.formatUnits(receivedAmount, pool.lpToken.decimals)} ${pool.lpToken.symbol} to pool ${
-        pool.id
-      }`,
+      `Deposited ${ethers.utils.formatUnits(receivedAmount, pool.lpToken.decimals)} ${
+        pool.lpToken.symbol
+      } to pool ${pool.id}`,
     );
   };
 

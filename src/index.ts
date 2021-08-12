@@ -9,7 +9,7 @@ import { Token, LPToken, Pool, Router, MasterChef, Farm } from './libs/interface
 import { doStrategy } from './libs/strategy';
 import { quote } from './libs/1inch';
 
-const privateKey: any = String(process.env.PRIVATE_KEY);
+const privateKey = String(process.env.PRIVATE_KEY);
 const MIN_CONFIRMS = Number(process.env.MIN_CONFIRMS);
 const hodlTokenAddress = String(process.env.HODL_TOKEN_ADDRESS);
 const tokenAddress = String(process.env.TOKEN_ADDRESS);
@@ -18,9 +18,15 @@ const pendingFunctionName = String(process.env.PENDING_FUNCTION_NAME);
 const STRATEGY = String(process.env.STRATEGY);
 const validStrategies = config.strategies;
 const SLEEP = Number(process.env.SLEEP);
-const RPC_URL = process.env.CUSTOM_RPC !== '' ? String(process.env.CUSTOM_RPC) : config.chains.polygon.rpcUrl;
-const PROVIDER: ethers.providers.JsonRpcProvider = new ethers.providers.JsonRpcProvider(RPC_URL);
-const WALLET: ethers.Wallet = new ethers.Wallet(privateKey, PROVIDER);
+const RPC_URL =
+  process.env.CUSTOM_RPC !== '' ? String(process.env.CUSTOM_RPC) : config.chains.polygon.rpcUrl;
+
+if (privateKey.length !== 64) {
+  console.log('[!] Error: Invalid Private Key');
+  process.exit();
+}
+const PROVIDER = new ethers.providers.JsonRpcProvider(RPC_URL);
+const WALLET = new ethers.Wallet(privateKey, PROVIDER);
 const WALLET_ADDRESS = WALLET.address;
 //const CMD_LINE_ARGS: string[] = process.argv.slice(2);
 
@@ -47,7 +53,7 @@ const processStrategy = (strategy: string): Array<{ poolId: number; strategy: st
 
 const startSleeping = async (delay: number): Promise<void> => {
   // eslint-disable-next-line no-undef
-  const sleep = (ms: number): Promise<string> => new Promise<string>(resolve => setTimeout(resolve, ms));
+  const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
   const sleepBar = new cliProgress.SingleBar({
     format: 'Sleep Timer ' + '[{bar}]' + ' {percentage}% || {value}/{total} Minutes',
     barCompleteChar: '\u2588',
@@ -141,7 +147,12 @@ const getLpToken = async (farmToken: Token, address: string): Promise<LPToken> =
   }
 };
 
-const getPool = async (masterChef: MasterChef, farmToken: Token, id: number, strategy: string): Promise<Pool> => {
+const getPool = async (
+  masterChef: MasterChef,
+  farmToken: Token,
+  id: number,
+  strategy: string,
+): Promise<Pool> => {
   const poolInfo: ethers.utils.Result = await masterChef.contract.poolInfo(id);
   // TODO can poolInfo have a function other than lpToken that returns the address we need?
   const lpTokenAddress: string = poolInfo.lpToken;
@@ -163,7 +174,12 @@ const buildFarm = async (
 ): Promise<Farm> => {
   const pools = [];
   for (let i = 0; i < strategyArray.length; i++) {
-    const pool = await getPool(masterChef, token, strategyArray[i].poolId, strategyArray[i].strategy);
+    const pool = await getPool(
+      masterChef,
+      token,
+      strategyArray[i].poolId,
+      strategyArray[i].strategy,
+    );
     pools.push(pool);
   }
   const farm: Farm = {
@@ -177,34 +193,40 @@ const buildFarm = async (
 };
 
 const harvest = async (farm: Farm): Promise<void> => {
+  const usdcAddress = config.chains.polygon.stables.usdc;
+  const usdcDollar = ethers.utils.parseUnits('1', 6);
   for (const pool of farm.pools) {
     console.log(`Checking pool ${pool.id}`);
     // check if you are staked in the pool
-    const staked: ethers.utils.Result = await farm.masterChef.contract.userInfo(pool.id, WALLET_ADDRESS);
+    const staked: ethers.utils.Result = await farm.masterChef.contract.userInfo(
+      pool.id,
+      WALLET_ADDRESS,
+    );
     if (staked.amount.isZero()) {
       console.log(`Skipping pool ${pool.id}, you have 0 staked`);
       continue;
     }
-    const pendingReward: BigNumber = await farm.masterChef.contract[farm.masterChef.pendingFunctionName](
-      pool.id,
-      WALLET_ADDRESS,
-    );
+    const pendingReward: BigNumber = await farm.masterChef.contract[
+      farm.masterChef.pendingFunctionName
+    ](pool.id, WALLET_ADDRESS);
     console.log(
-      `Pool ${pool.id} pending reward: ${ethers.utils.formatUnits(pendingReward, farm.token.decimals)} ${
-        farm.token.symbol
-      }`,
+      `Pool ${pool.id} pending reward: ${ethers.utils.formatUnits(
+        pendingReward,
+        farm.token.decimals,
+      )} ${farm.token.symbol}`,
     );
     // TODO additional guardrails, like check if pendingReward > 1 USDC
     // TODO make this better
-    const usdcAddress = config.chains.polygon.stables.usdc;
-    const usdcDollar = ethers.utils.parseUnits('1', 6);
     const quoteData = await quote(farm.token.address, usdcAddress, pendingReward.toString());
     const quoteUSDCAmount = BigNumber.from(quoteData.toTokenAmount);
     if (quoteUSDCAmount.lt(usdcDollar)) {
       console.log(`Pending reward is less than 1 USDC, skipping pool ${pool.id}`);
       continue;
     }
-    const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(pool.id, 0);
+    const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(
+      pool.id,
+      0,
+    );
     const receipt: ethers.providers.TransactionReceipt = await tx.wait(MIN_CONFIRMS);
     // Parse and get how much we actually received
     const transferInterface = new ethers.utils.Interface([
@@ -220,7 +242,9 @@ const harvest = async (farm: Farm): Promise<void> => {
           if (parsed.args['to'].toUpperCase() === WALLET_ADDRESS.toUpperCase()) {
             receivedReward = parsed.args['value'];
             console.log(
-              `Receieved ${ethers.utils.formatUnits(receivedReward, farm.token.decimals)} ${farm.token.symbol}`,
+              `Receieved ${ethers.utils.formatUnits(receivedReward, farm.token.decimals)} ${
+                farm.token.symbol
+              }`,
             );
           }
         }
