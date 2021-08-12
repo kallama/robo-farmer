@@ -9,15 +9,18 @@ export interface Token {
   abi: string;
 }
 
-export interface Pool extends Token {
-  poolId?: number;
-  strategy?: string;
-  pair?: boolean;
+export interface LPToken extends Token {
+  pair: boolean;
   factory?: string;
   router?: Router;
-  minimumLiquidity?: number;
   token0?: Token;
   token1?: Token;
+}
+
+export interface Pool extends Token {
+  id: number;
+  strategy: string;
+  lpToken: LPToken;
 }
 
 export interface Router {

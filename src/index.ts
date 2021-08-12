@@ -1,13 +1,13 @@
 import 'dotenv-defaults/config';
-import axios from 'axios';
 import cliProgress from 'cli-progress';
 //import fs from 'fs'
 import * as config from './config.json';
 import { ethers, BigNumber } from 'ethers';
-import { colors } from './libs/colors';
+//import { colors } from './libs/colors';
 import { getPolygonScanABI } from './libs/polygonscan';
-import { Token, Pool, Router, MasterChef, Farm } from './libs/interfaces';
+import { Token, LPToken, Pool, Router, MasterChef, Farm } from './libs/interfaces';
 import { doStrategy } from './libs/strategy';
+import { quote } from './libs/1inch';
 
 const privateKey: any = String(process.env.PRIVATE_KEY);
 const MIN_CONFIRMS = Number(process.env.MIN_CONFIRMS);
@@ -17,13 +17,12 @@ const chefAddress = String(process.env.CHEF_ADDRESS);
 const pendingFunctionName = String(process.env.PENDING_FUNCTION_NAME);
 const STRATEGY = String(process.env.STRATEGY);
 const validStrategies = config.strategies;
-const SLIPPAGE = Number(process.env.SLIPPAGE);
 const SLEEP = Number(process.env.SLEEP);
 const RPC_URL = process.env.CUSTOM_RPC !== '' ? String(process.env.CUSTOM_RPC) : config.chains.polygon.rpcUrl;
 const PROVIDER: ethers.providers.JsonRpcProvider = new ethers.providers.JsonRpcProvider(RPC_URL);
 const WALLET: ethers.Wallet = new ethers.Wallet(privateKey, PROVIDER);
 const WALLET_ADDRESS = WALLET.address;
-const CMD_LINE_ARGS: string[] = process.argv.slice(2);
+//const CMD_LINE_ARGS: string[] = process.argv.slice(2);
 
 /*const processArguments = async (arg: string[]): Promise<string> => {
   return 'world';
@@ -46,7 +45,7 @@ const processStrategy = (strategy: string): Array<{ poolId: number; strategy: st
   return strategyArray;
 };
 
-const startSleeping = async (delay: number): Promise<boolean> => {
+const startSleeping = async (delay: number): Promise<void> => {
   // eslint-disable-next-line no-undef
   const sleep = (ms: number): Promise<string> => new Promise<string>(resolve => setTimeout(resolve, ms));
   const sleepBar = new cliProgress.SingleBar({
@@ -62,7 +61,6 @@ const startSleeping = async (delay: number): Promise<boolean> => {
     await sleep(1 * 60 * 1000);
   }
   sleepBar.stop();
-  return true;
 };
 
 const getToken = async (address: string): Promise<Token> => {
@@ -92,39 +90,68 @@ const getMasterChef = async (address: string, pendingFunctionName: string): Prom
   return { address, pendingFunctionName, contract, pools, abi };
 };
 
-const getPool = async (masterChef: MasterChef, poolId: number): Promise<Pool> => {
-  const poolInfo = (await masterChef.contract.poolInfo(poolId)) as ethers.utils.Result;
-  // TODO can poolInfo have a function other than lpToken that returns the address we need?
-  const address = poolInfo.lpToken;
-  const pool: Pool = await getToken(address);
-  pool.poolId = poolId;
-  pool.pair = false;
+const getLpToken = async (farmToken: Token, address: string): Promise<LPToken> => {
+  const token = await getToken(address);
   // check if lp token
-  if (Object.prototype.hasOwnProperty.call(pool.contract, 'factory')) {
-    pool.pair = true;
-    pool.factory = await pool.contract.factory();
-    pool.minimumLiquidity = await pool.contract.MINIMUM_LIQUIDITY();
-    pool.token0 = await pool.contract.token0();
-    pool.token1 = await pool.contract.token1();
+  let pair = false;
+  if (Object.prototype.hasOwnProperty.call(token.contract, 'factory')) {
+    pair = true;
+    const factory: string = await token.contract.factory();
+    const token0Address: string = await token.contract.token0();
+    const token1Address: string = await token.contract.token1();
+    const token0: Token =
+      token0Address.toUpperCase() === farmToken.address.toUpperCase()
+        ? { ...farmToken }
+        : await getToken(token0Address);
+    const token1: Token =
+      token1Address.toUpperCase() === farmToken.address.toUpperCase()
+        ? { ...farmToken }
+        : await getToken(token1Address);
     // TODO make this better
     let routerAddress = '';
     const abi = [
-      'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)',
-      'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
       'function addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) external returns (uint amountA, uint amountB, uint liquidity)',
     ];
-    if (pool.factory?.toUpperCase() === config.chains.polygon.swaps.quickswap.factory.toUpperCase()) {
+    if (factory.toUpperCase() === config.chains.polygon.swaps.quickswap.factory.toUpperCase()) {
       routerAddress = config.chains.polygon.swaps.quickswap.router;
     }
-    if (pool.factory?.toUpperCase() === config.chains.polygon.swaps.sushiswap.factory.toUpperCase()) {
+    if (factory.toUpperCase() === config.chains.polygon.swaps.sushiswap.factory.toUpperCase()) {
       routerAddress = config.chains.polygon.swaps.sushiswap.router;
     }
     const router: Router = {
       address: routerAddress,
-      contract: new ethers.Contract(routerAddress, abi, PROVIDER),
+      contract: new ethers.Contract(routerAddress, abi, WALLET),
     };
-    pool.router = router;
+    const lpToken: LPToken = {
+      ...token,
+      pair,
+      factory,
+      router,
+      token0,
+      token1,
+    };
+    return lpToken;
+  } else {
+    // not an LP pair token
+    const lpToken: LPToken = {
+      ...token,
+      pair,
+    };
+    return lpToken;
   }
+};
+
+const getPool = async (masterChef: MasterChef, farmToken: Token, id: number, strategy: string): Promise<Pool> => {
+  const poolInfo: ethers.utils.Result = await masterChef.contract.poolInfo(id);
+  // TODO can poolInfo have a function other than lpToken that returns the address we need?
+  const lpTokenAddress: string = poolInfo.lpToken;
+  const lpToken = await getLpToken(farmToken, lpTokenAddress);
+  const pool: Pool = {
+    ...lpToken,
+    id,
+    strategy,
+    lpToken,
+  };
   return pool;
 };
 
@@ -136,8 +163,7 @@ const buildFarm = async (
 ): Promise<Farm> => {
   const pools = [];
   for (let i = 0; i < strategyArray.length; i++) {
-    const pool = await getPool(masterChef, strategyArray[i].poolId);
-    pool.strategy = strategyArray[i].strategy;
+    const pool = await getPool(masterChef, token, strategyArray[i].poolId, strategyArray[i].strategy);
     pools.push(pool);
   }
   const farm: Farm = {
@@ -152,30 +178,39 @@ const buildFarm = async (
 
 const harvest = async (farm: Farm): Promise<void> => {
   for (const pool of farm.pools) {
-    console.log(`Checking pool ${pool.poolId}`);
+    console.log(`Checking pool ${pool.id}`);
     // check if you are staked in the pool
-    const staked: ethers.utils.Result = await farm.masterChef.contract.userInfo(pool.poolId, WALLET_ADDRESS);
+    const staked: ethers.utils.Result = await farm.masterChef.contract.userInfo(pool.id, WALLET_ADDRESS);
     if (staked.amount.isZero()) {
-      console.log(`Skipping pool ${pool.poolId}, you have 0 staked`);
+      console.log(`Skipping pool ${pool.id}, you have 0 staked`);
       continue;
     }
-    // TODO additional guardrails, like check if pendingReward > 1 USDC
-    const pendingReward = (await farm.masterChef.contract[farm.masterChef.pendingFunctionName](
-      pool.poolId,
+    const pendingReward: BigNumber = await farm.masterChef.contract[farm.masterChef.pendingFunctionName](
+      pool.id,
       WALLET_ADDRESS,
-    )) as BigNumber;
+    );
     console.log(
-      `Pool ${pool.poolId} pending reward: ${ethers.utils.formatUnits(pendingReward, farm.token.decimals)} ${
+      `Pool ${pool.id} pending reward: ${ethers.utils.formatUnits(pendingReward, farm.token.decimals)} ${
         farm.token.symbol
       }`,
     );
-    const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(pool.poolId, 0);
+    // TODO additional guardrails, like check if pendingReward > 1 USDC
+    // TODO make this better
+    const usdcAddress = config.chains.polygon.stables.usdc;
+    const usdcDollar = ethers.utils.parseUnits('1', 6);
+    const quoteData = await quote(farm.token.address, usdcAddress, pendingReward.toString());
+    const quoteUSDCAmount = BigNumber.from(quoteData.toTokenAmount);
+    if (quoteUSDCAmount.lt(usdcDollar)) {
+      console.log(`Pending reward is less than 1 USDC, skipping pool ${pool.id}`);
+      continue;
+    }
+    const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(pool.id, 0);
     const receipt: ethers.providers.TransactionReceipt = await tx.wait(MIN_CONFIRMS);
+    // Parse and get how much we actually received
     const transferInterface = new ethers.utils.Interface([
       'event Transfer(address indexed from, address indexed to, uint256 value)',
     ]);
     const hash = transferInterface.getEventTopic('Transfer');
-    // get log from token address, parse and get how much we actually received
     let receivedReward = BigNumber.from(0);
     for (const log of receipt.logs) {
       for (const topic of log.topics) {
@@ -192,9 +227,11 @@ const harvest = async (farm: Farm): Promise<void> => {
       }
     }
     if (!receivedReward.isZero()) {
-      await doStrategy(farm, pool.strategy, receivedReward, WALLET);
+      await doStrategy(farm, pool, receivedReward, PROVIDER, WALLET).catch(error => {
+        console.log(error);
+      });
     } else {
-      console.log(`[!] Recieved 0 ${farm.token.symbol} from pool ${pool.poolId}`);
+      console.log(`[!] Received 0 ${farm.token.symbol} from pool ${pool.id}`);
     }
   }
 };
@@ -209,18 +246,14 @@ const main = async (): Promise<void> => {
     console.log(`Hodl Token: ${hodlToken.name} (${hodlToken.symbol})`);
     const masterChef = await getMasterChef(chefAddress, pendingFunctionName);
     const farm = await buildFarm(token, hodlToken, masterChef, strategyArray);
-    await harvest(farm);
+    while (farm) {
+      await harvest(farm);
+      await startSleeping(SLEEP);
+    }
   } catch (error) {
     console.log(error);
     process.exit();
   }
-
-  /*
-  while (true) {
-    await harvest(farm)
-    await startSleeping(SLEEP)
-  }
-  */
   console.log('Hello world!');
 };
 main();
