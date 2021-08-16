@@ -139,7 +139,7 @@ export const doStrategy = async (
       half0 = await strategySell(farm.token, pool.lpToken.token0, half);
     if (farm.token.address.toUpperCase() !== pool.lpToken.token1.address.toUpperCase())
       half1 = await strategySell(farm.token, pool.lpToken.token1, half);
-    addLiquidity(half0, half1, pool);
+    await addLiquidity(half0, half1, pool);
   };
 
   const strategyDegenCompound = async (
