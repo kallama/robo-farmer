@@ -1,11 +1,8 @@
 import axios from 'axios';
-import * as config from '../config.json';
-
-const polygonScanUrl = config.chains.polygon.polygonScanUrl;
-const polygonScanApiKey = String(process.env.POLYGONSCAN_API_KEY);
+import config from '../config';
 
 export const getPolygonScanABI = async (address: string): Promise<string> => {
-  const url = polygonScanUrl + address + '&apikey=' + polygonScanApiKey;
+  const url = config.POLYGON.POLYGONSCAN_URL + address + '&apikey=' + config.POLYGONSCAN_API_KEY;
   try {
     const response = await axios.get(url);
     if (response.status !== 200) {

@@ -1,9 +1,6 @@
 import axios from 'axios';
 import { ethers } from 'ethers';
-import * as config from '../config.json';
-
-const ONEINCHURL = config['1inchUrl'];
-const SLIPPAGE = String(process.env.SLIPPAGE);
+import config from '../config';
 
 type Quote = {
   fromToken: {
@@ -32,7 +29,7 @@ export const quote = async (
   amount: string,
 ): Promise<Quote> => {
   const url =
-    ONEINCHURL +
+    config.POLYGON.ONEINCH_URL +
     `quote?fromTokenAddress=${fromTokenAddress}&toTokenAddress=${toTokenAddress}&amount=${amount}`;
   const response = await axios.get(url);
   return response.data;
@@ -45,8 +42,8 @@ export const swap = async (
   fromAddress: string,
 ): Promise<ethers.providers.TransactionRequest> => {
   const url =
-    ONEINCHURL +
-    `swap?fromTokenAddress=${fromTokenAddress}&toTokenAddress=${toTokenAddress}&amount=${amount}&fromAddress=${fromAddress}&slippage=${SLIPPAGE}&allowPartialFill=false`;
+    config.POLYGON.ONEINCH_URL +
+    `swap?fromTokenAddress=${fromTokenAddress}&toTokenAddress=${toTokenAddress}&amount=${amount}&fromAddress=${fromAddress}&slippage=${config.SLIPPAGE}&allowPartialFill=false`;
   const response = await axios.get(url);
   const data = response.data;
   const tx = data.tx;
