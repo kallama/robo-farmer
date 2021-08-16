@@ -4,3 +4,4 @@
 - Option to use one strategy on every pool in chef contract that wallet address has a balanceOf
 - Reduce ABI calls on startup
   - Store ABI's in a file, load them if HODL_TOKEN_ADDRESS and TOKEN_ADDRESS and CHEF_ADDRESS haven't changed
+- Be able to function with or without polygonscan api. If no API, read from a file for ABI's
