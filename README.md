@@ -1,21 +1,23 @@
 # Robo-Farmer 🤖🌾
 
-Enslave robots to manage your farms and harvest your crops.
+Enslave robots to manage your farms and harvest your crops.  
+**Use at your own risk, this repository is under active development and features may be broken.**
 
 ### Features
 
-- Farm one or multiple pools
-- Multiple strategies available
+- Farm one or multiple pools.
+- Multiple strategies available.
   - Hold
-    - Keep the farm tokens in your wallet
+    - Keep the farm tokens in your wallet.
   - Sell
-    - Swap the farm tokens rewards for `HODL_TOKEN_ADDRESS` defined in your .env file
+    - Swap the farm tokens rewards for `HODL_TOKEN_ADDRESS` defined in your .env file.
   - Compound
     - Swap the farm tokens rewards for the pool tokens, use them to create more liqudity, add liquidity to pool
-  - Hyper Compound (One of the pool tokens must be the farm token)
-    - If one of the pool tokens is the farm token, when compounding, use other half from wallet
-- Set how many minutes between harvests the robots are allowed to sleep
-- Minimal risk of a robot uprising
+  - Degen Compound (One of the pool tokens must be the farm token)
+    - If one of the pool tokens is the farm token, when compounding, get the other half from wallet. If wallet contains less of the other token than the harvest of the reward token value, a regular compound will occur instead.
+- Set how many minutes between harvests the robots are allowed to sleep.
+- Set a minimum value limit to pool harvests. If the harvest reward is less than `HODL_MIN` in value, pool harvest will be skipped to not waste gas on small transactions.
+- Minimal risk of a robot uprising.
 
 ### Requirements
 - Polygonscan API Key ([https://polygonscan.com/apis](https://polygonscan.com/apis))
