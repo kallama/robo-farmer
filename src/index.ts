@@ -52,6 +52,21 @@ const processStrategy = (strategy: string): Array<{ poolId: number; strategy: st
   return strategyArray;
 };
 
+const checkLogic = (farm: Farm): void => {
+  for (const pool of farm.pools) {
+    /* verify that pool.token0 and pool.token1 are Token */
+    if (typeof pool.lpToken.token0 === 'undefined' || typeof pool.lpToken.token1 === 'undefined')
+      throw new Error(`[!] Error: pool.lpToken.token0 or pool.lpToken.token1 can't be undefined`);
+    /* verify that pool.lpToken.router is a Router */
+    if (typeof pool.lpToken.router === 'undefined')
+      throw new Error(`[!] Error: pool.lpToken.router can't be undefined`);
+    /* verify that pool.lpToken.factory is a string */
+    if (typeof pool.lpToken.factory === 'undefined') {
+      throw new Error(`[!] Error: pool.lpToken.factory can't be undefined`);
+    }
+  }
+};
+
 const startSleeping = async (delay: number): Promise<void> => {
   // eslint-disable-next-line no-undef
   const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
@@ -230,9 +245,12 @@ const harvest = async (farm: Farm): Promise<void> => {
         continue;
       }
     }
+    let gasLimit = await farm.masterChef.contract.estimateGas.deposit(pool.id, 0);
+    gasLimit = gasLimit.mul(150).div(100); // increase gasLimit by 50%
     const tx: ethers.providers.TransactionResponse = await farm.masterChef.contract.deposit(
       pool.id,
       0,
+      { gasLimit },
     );
     const receipt: ethers.providers.TransactionReceipt = await tx.wait(CONFIRMS_MIN);
     // Parse and get how much we actually received
@@ -277,6 +295,7 @@ const main = async (): Promise<void> => {
     console.log(`Hodl Token: ${hodlToken.name} (${hodlToken.symbol})`);
     const masterChef = await getMasterChef(CHEF_ADDRESS, PENDING_FUNCTION_NAME);
     const farm = await buildFarm(token, hodlToken, masterChef, strategyArray);
+    checkLogic(farm); // Run logic checks
     while (farm) {
       await harvest(farm);
       await startSleeping(SLEEP);

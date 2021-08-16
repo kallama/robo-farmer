@@ -27,7 +27,7 @@
       }
     }
   },
-  "strategies": ["HOLD", "SELL", "COMP", "HYPCOMP"],
+  "strategies": ["HOLD", "SELL", "COMP", "DEGENCOMP"],
   "gasStationUrl": "https://gasstation-mainnet.matic.network",
   "1inchUrl": "https://api.1inch.exchange/v3.0/137/",
   "authorAddress": ""
