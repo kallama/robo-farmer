@@ -30,6 +30,17 @@ export const doStrategy = async (
     console.log(`Creating liquidity for pool ${pool.id}`);
     const amount0Min = amount0.mul(90).div(100); // 10% less
     const amount1Min = amount1.mul(90).div(100); // 10% less
+    let gasLimit = await pool.lpToken.router.contract.estimateGas.addLiquidity(
+      pool.lpToken.token0.address,
+      pool.lpToken.token1.address,
+      amount0,
+      amount1,
+      amount0Min,
+      amount1Min,
+      WALLET.address,
+      Date.now() + 1000 * 60 * 20, // max execution time 20 minutes
+    );
+    gasLimit = gasLimit.mul(150).div(100); // increase gasLimit by 50%
     let tx: ethers.providers.TransactionResponse = await pool.lpToken.router.contract.addLiquidity(
       pool.lpToken.token0.address,
       pool.lpToken.token1.address,
@@ -39,6 +50,7 @@ export const doStrategy = async (
       amount1Min,
       WALLET.address,
       Date.now() + 1000 * 60 * 20, // max execution time 20 minutes
+      { gasLimit },
     );
     let receipt: ethers.providers.TransactionReceipt = await tx.wait(config.CONFIRMS_MIN);
     // Parse and get how much we actually received
