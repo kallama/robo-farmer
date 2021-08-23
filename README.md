@@ -5,6 +5,8 @@ Enslave robots to manage your farms and harvest your crops.
 
 ### Features
 
+- Blockchains
+  - Polygon ✔
 - Farm one or multiple pools.
 - Multiple strategies available.
   - Hold
@@ -27,7 +29,7 @@ Enslave robots to manage your farms and harvest your crops.
 
 ### Install
 1. `yarn install`
-2. Create a `.env` file and define your custom settings like `PRIVATE_KEY`
+2. Create a `.env` file and define your custom settings like `PRIVATE_KEY`, `TOKEN_ADDRESS`, etc. If you want to keep a default already set in .env.defaults, you don't need to to set it in your .env.
 
 ### Run
 `yarn start`
